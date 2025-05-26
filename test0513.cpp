@@ -5,6 +5,7 @@
 #include <thread>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 
 using namespace std;
 using namespace sf;
@@ -25,6 +26,17 @@ bool isRunning = true;                      // 게임 루프 실행 여부
 vector<Texture> gradeTextures(9);           // 9개의 학점 텍스처 저장
 vector<Sprite> gradeSprites(9);             // 텍스처로부터 만든 스프라이트
 mutex gradeMutex;                           // 학점 벡터 접근을 위한 뮤텍스
+Clock gameClock;
+int rowCount = 0;
+
+vector<float> collectedScores;  // 받은 학점 점수 저장
+int gradeCollisionCount = 0;    // 충돌 횟수
+int currentYear = 0;
+vector<float> yearAverages(4);
+bool isGamePaused = false;
+bool isGameOver = false;
+string currentYearAverageStr = "";  // 🔁 매 학년 끝날 때 저장용
+
 
 // --- 구조체 정의 ---
 
@@ -74,56 +86,92 @@ void CreateRow(vector<Grade>& grades, int rowIndex, float activatedTime) {
 
 // 학점을 일정 시간마다 생성하고 떨어뜨리는 스레드 함수
 void dropGrades(vector<Grade>& grades) {
-    Clock gameClock;
-    int rowCount = 0;
 
     while (isRunning) {
         float currentTime = gameClock.getElapsedTime().asSeconds();
 
-        // TIME_BETWEEN_ROWS 초마다 한 줄 생성
-        if (currentTime >= rowCount * TIME_BETWEEN_ROWS) {
-            CreateRow(grades, rowCount, currentTime);
-            ++rowCount;
-        }
-
-        {
-            lock_guard<mutex> lock(gradeMutex);
-            for (auto& g : grades) {
-                // 일정 시간이 지나면 학점 활성화 (떨어지기 시작)
-                if (!g.active && currentTime >= g.activatedTime) {
-                    g.active = true;
-                }
-
-                // 활성화된 학점은 매 프레임 y 좌표 증가 (낙하 속도 적용)
-                if (g.active) {
-                    g.y += DROP_SPEED; // 낙하 속도: 프레임마다 DROP_SPEED 픽셀 증가
-                    g.sprite.setPosition(g.x, g.y);
-                }
+        if (!isGamePaused && !isGameOver) {
+            // TIME_BETWEEN_ROWS 초마다 한 줄 생성
+            if (currentTime >= rowCount * TIME_BETWEEN_ROWS) {
+                CreateRow(grades, rowCount, currentTime);
+                ++rowCount;
             }
 
-            // 바닥에 도달한 학점은 제거 (화면 아래로 내려간 경우)
-            grades.erase(
-                remove_if(grades.begin(), grades.end(), [](const Grade& g) {
-                    return g.active && g.y >= WINDOW_HEIGHT - GRADE_HEIGHT;
-                }),
-                grades.end()
-            );
+            {
+                lock_guard<mutex> lock(gradeMutex);
+                for (auto& g : grades) {
+                    if (!g.active && currentTime >= g.activatedTime) {
+                        g.active = true;
+                    }
+                    if (g.active) {
+                        g.y += DROP_SPEED;
+                        g.sprite.setPosition(g.x, g.y);
+                    }
+                }
+
+                grades.erase(
+                    remove_if(grades.begin(), grades.end(), [](const Grade& g) {
+                        return g.active && g.y >= WINDOW_HEIGHT - GRADE_HEIGHT;
+                    }),
+                    grades.end()
+                );
+            }
         }
 
-        // 30밀리초 간격으로 루프 반복 (약 33 FPS 수준의 낙하 스레드)
         this_thread::sleep_for(chrono::milliseconds(30));
     }
 }
 
+   
 // 플레이어와 충돌한 학점 제거
 void checkCollisions(vector<Grade>& grades) {
     FloatRect playerBounds = player.sprite.getGlobalBounds(); // 플레이어의 경계
 
     grades.erase(
         remove_if(grades.begin(), grades.end(), [&](const Grade& g) {
-            // 충돌 조건: 활성화된 학점 && 경계 충돌 발생
+            // 활성화된 학점 && 충돌한 경우
             if (g.active && g.sprite.getGlobalBounds().intersects(playerBounds)) {
-                cout << "충돌!" << endl;
+                // 어떤 학점 이미지인지 찾기
+                for (int i = 0; i < gradeSprites.size(); ++i) {
+                    if (g.sprite.getTexture() == gradeSprites[i].getTexture()) {
+                        float score = 4.5f - i * 0.5f; // grade_1.png = 4.5, ..., grade_9.png = 0.0
+                        collectedScores.push_back(score);
+                        gradeCollisionCount++;
+
+                        cout << "충돌한 학점: grade_" << (i + 1) << " → " << score << "점" << endl;
+
+                        // 11개 학점과 충돌하면 평균 계산 + 일시 정지
+if (gradeCollisionCount == 11) {
+                            float total = 0;
+                            for (float s : collectedScores) total += s;
+                            float average = total / collectedScores.size();
+                            
+stringstream oss;
+oss.precision(2);
+oss << fixed << average;
+if (currentYear < 3) { 
+currentYearAverageStr = "Year " + to_string(currentYear + 1) + " Average: " + oss.str();
+}                           
+
+                            cout << "\n📘 " << currentYear + 1 << "학년 평균 점수: " << average << "점\n" << endl;
+
+                            yearAverages[currentYear] = average;
+
+                            collectedScores.clear();
+                            gradeCollisionCount = 0;
+                            isGamePaused = true;
+
+                            // 마지막 4학년이면 게임 종료
+                            if (currentYear == 3) {
+                                isGameOver = true;
+                                isRunning = false; // dropThread도 종료
+                            }
+                        }
+
+                        break; // 찾았으면 반복 종료
+                    }
+                }
+
                 return true; // 충돌한 학점은 제거
             }
             return false;
@@ -135,6 +183,18 @@ void checkCollisions(vector<Grade>& grades) {
 // --- 메인 함수 ---
 int main() {
     srand(static_cast<unsigned int>(time(nullptr))); // 랜덤 초기화
+Font font;
+if (!font.loadFromFile("NotoSansKR-VariableFont_wght.ttf")) {
+    cerr << "폰트 로딩 실패!" << endl;
+}
+
+Text restartText;
+restartText.setFont(font);
+restartText.setString("Press Enter to Start Next Year");
+restartText.setCharacterSize(30);
+restartText.setFillColor(Color::Yellow);
+restartText.setPosition(100, 250);
+
 
     RenderWindow window(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "FMALGOAJO");
     window.setFramerateLimit(60); // 화면 FPS 제한
@@ -174,15 +234,32 @@ int main() {
         }
 
         // --- 키보드 입력 처리 (좌우 이동) ---
-        if (Keyboard::isKeyPressed(Keyboard::Left)) {
-            player.x -= PLAYER_SPEED;
-            if (player.x < 0) player.x = 0;
-        }
-        if (Keyboard::isKeyPressed(Keyboard::Right)) {
-            player.x += PLAYER_SPEED;
-            if (player.x + player.sprite.getGlobalBounds().width > WINDOW_WIDTH)
-                player.x = WINDOW_WIDTH - player.sprite.getGlobalBounds().width;
-        }
+	if (!isGamePaused && !isGameOver) {
+    	if (Keyboard::isKeyPressed(Keyboard::Left)) {
+      	  player.x -= PLAYER_SPEED;
+      	  if (player.x < 0) player.x = 0;
+   	}
+    	if (Keyboard::isKeyPressed(Keyboard::Right)) {
+        player.x += PLAYER_SPEED;
+        if (player.x + 	player.sprite.getGlobalBounds().width > WINDOW_WIDTH)
+           player.x = WINDOW_WIDTH -player.sprite.getGlobalBounds().width;
+    }
+}
+
+// --- Enter 눌러서 다음 학년 시작 ---
+if (isGamePaused && Keyboard::isKeyPressed(Keyboard::Enter)) {
+    currentYear++;
+    isGamePaused = false;
+    
+    gameClock.restart();  
+    rowCount = 0;    
+    
+    currentYearAverageStr = "";
+
+    lock_guard<mutex> lock(gradeMutex);
+    grades.clear(); // 기존 학점 제거
+}
+
 
         // --- 충돌 검사 ---
         {
@@ -201,6 +278,51 @@ int main() {
         }
 
         drawPlayer(window); // 플레이어 그리기
+
+	// 평균 출력용 텍스트
+	if (isGamePaused && currentYear < 4 && !isGameOver && currentYearAverageStr != "" && currentYear != 3) {
+    	window.draw(restartText);  // Enter 누르라는 메시지
+	}
+	Text avgText;
+  	avgText.setFont(font);
+  	avgText.setCharacterSize(25);
+  	avgText.setFillColor(Color::White);
+  	avgText.setPosition(100, 200);
+  	avgText.setString(currentYearAverageStr);  // 전역 변수로 선언된 값
+    window.draw(avgText);
+	
+	// --- 최종 결과 표시 ---
+if (isGameOver) {
+    for (int i = 0; i < 4; ++i) {
+        Text yearText;
+        yearText.setFont(font);
+        yearText.setCharacterSize(25);
+        yearText.setFillColor(Color::White);
+        yearText.setPosition(100, 300 + i * 40);  // 각 줄 간격
+
+        string avgStr = to_string(yearAverages[i]);
+        avgStr = avgStr.substr(0, avgStr.find('.') + 3); // 소수점 둘째자리까지 자르기 (예: 2.40)
+
+        yearText.setString("Year " + to_string(i + 1) + " Average: " + avgStr);
+        window.draw(yearText);
+    }
+
+    // 전체 평균 출력 (선택 사항)
+    float total = 0;
+    for (float s : yearAverages) total += s;
+    float finalAvg = total / 4;
+    string finalStr = to_string(finalAvg);
+    finalStr = finalStr.substr(0, finalStr.find('.') + 3);
+
+    Text finalText;
+    finalText.setFont(font);
+    finalText.setCharacterSize(28);
+    finalText.setFillColor(Color::Yellow);
+    finalText.setPosition(100, 300 + 4 * 40 + 20);  // 마지막 줄 밑에 출력
+
+    finalText.setString(" Final GPA: " + finalStr);
+    window.draw(finalText);
+}
 
         window.display();
     }
