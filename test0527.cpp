@@ -21,6 +21,7 @@ constexpr float DROP_SPEED = 5.0f;
 constexpr float MIN_SPAWN_INTERVAL = 0.3f;
 constexpr float MAX_SPAWN_INTERVAL = 0.7f;
 constexpr float PLAYER_SPEED = 10.0f;
+constexpr float TIME_BETWEEN_ROWS = 0.7f; //나중 조절 상수
 
 // --- 전역 변수 ---
 bool isRunning = true;
@@ -33,6 +34,7 @@ Clock gameClock;
 vector<float> collectedScores;
 int gradeCollisionCount = 0;
 int currentYear = 0;
+int rowCount = 0;//새 전역변수
 vector<float> yearAverages(4);
 bool isGamePaused = false;
 bool isGameOver = false;
@@ -72,38 +74,66 @@ void CreateSingleGrade(vector<Grade>& grades, float currentTime) {
     grades.push_back(g);
 }
 
+//학년별 낙하 속도
+const float DROP_SPEED_BY_YEAR[4]={4.5f, 5.5f, 6.5f, 8.0f};
+//새 함수 선언(완전 새 함수)
+void CreateRow(vector<Grade>& grades, int rowIndex, float activatedTime) {
+	for (int i = 0; i < GRADES_PER_ROW; ++i) {
+	    Grade g;
+
+	    g.sprite = gradeSprites[(rowIndex*GRADES_PER_ROW+i) % gradeSprites.size()];
+
+	    int offset=(rowIndex % 2 ==0) ? 0 : GRADE_WIDTH/2;
+	    g.x = i*GRADE_SPACING_X+offset;
+	    g.y = 0;
+	    g.activatedTime = activatedTime;
+
+	    lock_guard<mutex> lock(gradeMutex);
+	    grades.push_back(g);
+	}
+}
+
+
+
+//학점 낙하 스레드 함수
 void dropGrades(vector<Grade>& grades) {
-   
-    float spawnInterval = 0.5f;
+    float spawnInterval=0.5f;
 
     while (isRunning) {
-        float currentTime = gameClock.getElapsedTime().asSeconds();
-
+	float currentTime = gameClock.getElapsedTime().asSeconds();
+         //
         if (!isGamePaused && !isGameOver) {
-            if (currentTime - lastSpawnTime >= spawnInterval) {
-                lock_guard<mutex> lock(gradeMutex);
-                CreateSingleGrade(grades, currentTime);
-                lastSpawnTime = currentTime;
 
-                spawnInterval = MIN_SPAWN_INTERVAL + static_cast<float>(rand()) / RAND_MAX * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL);
+	    float interval=TIME_BETWEEN_ROWS; //나중에 조절
+	    if (currentTime - lastSpawnTime >= spawnInterval) {
+         // if (currentTime >= rowCount * interval) {
+               // lock_guard<mutex> lock(gradeMutex);
+               CreateSingleGrade(grades, currentTime); //학점 무작위 배열
+               lastSpawnTime = currentTime;//
+      	       spawnInterval = MIN_SPAWN_INTERVAL + static_cast<float>(rand()) / RAND_MAX     * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL);
+	      
+	       CreateRow(grades, rowCount, currentTime);
+	       ++rowCount;
             }
 
-            {
-                lock_guard<mutex> lock(gradeMutex);
-                for (auto& g : grades) {
-                    if (!g.active && currentTime >= g.activatedTime) {
-                        g.active = true;
-                    }
-                    if (g.active) {
-                        g.y += DROP_SPEED;
-                        g.sprite.setPosition(g.x, g.y);
-                    }
-                }
-
-                grades.erase(
-                    remove_if(grades.begin(), grades.end(), [](const Grade& g) {
-                        return g.active && g.y >= WINDOW_HEIGHT - GRADE_HEIGHT;
-                    }),
+	    {
+	       lock_guard<mutex> lock(gradeMutex);
+	       for (auto& g : grades) {
+		   if (!g.active && currentTime >= g.activatedTime) {
+		       g.active=true;
+		   }
+                   if (g.active) {
+			 g.y += DROP_SPEED_BY_YEAR[currentYear];
+		         g.sprite.setPosition(g.x, g.y);
+		   }
+	       }
+                              
+                          
+                         
+               grades.erase(
+                   remove_if(grades.begin(), grades.end(), [](const Grade& g) {
+                       return g.active && g.y >= WINDOW_HEIGHT - GRADE_HEIGHT;
+                   }),
                     grades.end()
                 );
             }
