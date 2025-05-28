@@ -155,7 +155,7 @@ void checkCollisions(vector<Grade>& grades) {
                         collectedScores.push_back(score);
                         gradeCollisionCount++;
 
-                        cout << "추부한 학점: grade_" << (i + 1) << " → " << score << "점" << endl;
+                        cout << "충돌한 학점: grade_" << (i + 1) << " → " << score << "점" << endl;
 
                         if (gradeCollisionCount == 11) {
                             float total = 0;
