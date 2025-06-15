@@ -78,7 +78,15 @@ void dropGrades(vector<Grade>& grades) {
 
         if (!isGamePaused && !isGameOver) {
             if (currentTime - lastSpawnTime >= spawnInterval) {
-                createSingleGrade(grades, currentTime);
+		// 학년별로 떨어질 개수 결정-6.15일 수정
+		int minCount = currentYear +1;  
+		int maxCount = currentYear +2;
+		int dropCount = rand() % (maxCount - minCount +1) + minCount;
+                
+		for (int i = 0; i < dropCount; ++i) {
+			createSingleGrade(grades, currentTime);
+		}
+
                 lastSpawnTime = currentTime;
                 spawnInterval = MIN_SPAWN_INTERVAL + static_cast<float>(rand()) / RAND_MAX * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL);
                 ++rowCount;
@@ -115,7 +123,7 @@ void checkCollisions(vector<Grade>& grades) {
     grades.erase(
         remove_if(grades.begin(), grades.end(), [&](const Grade& g) {
             if (g.active && g.sprite.getGlobalBounds().intersects(playerBounds)) {
-                for (int i = 0; i < gradeSprites.size(); ++i) {
+                for (size_t i = 0; i < gradeSprites.size(); ++i) {
                     if (g.sprite.getTexture() == gradeSprites[i].getTexture()) {
                         float score = 4.5f - i * 0.5f;
                         collectedScores.push_back(score);
