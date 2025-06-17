@@ -6,6 +6,8 @@
 #include <mutex>
 #include <cmath>
 
+extern float finalGPA;
+
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
 
@@ -13,7 +15,7 @@ const int GRADES_PER_ROW = 8;
 const int GRADE_SPACING_X = WINDOW_WIDTH / GRADES_PER_ROW;
 const int GRADE_HEIGHT = 55;
 
-const float PLAYER_SPEED = 5.0f;
+const float PLAYER_SPEED = 7.0f;
 
 const float MIN_SPAWN_INTERVAL = 0.4f;
 const float MAX_SPAWN_INTERVAL = 1.0f;

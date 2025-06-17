@@ -4,6 +4,6 @@
 #include <SFML/Graphics.hpp>
 #include <string>
 
-int screenGradeResult(sf::RenderWindow& window, int grade, int score); 
+int screenGradeResult(sf::RenderWindow& window, int grade, float score); 
 
 #endif

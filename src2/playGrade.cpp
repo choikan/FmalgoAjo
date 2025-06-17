@@ -11,6 +11,7 @@
 #include <iostream>
 #include "screengraderesult.hpp"
 #include "screenEnd.hpp"
+#include <chrono>
 
 extern bool isRunning;
 extern bool isGamePaused;
@@ -26,6 +27,10 @@ extern std::string currentYearAverageStr;
 extern std::vector<float> collectedScores;
 
 int playGrade(sf::RenderWindow& window) {
+sf::Texture bgTex;
+    if (!bgTex.loadFromFile("../assets/images/back.png"))
+        return -1;
+
     for (currentYear = 0; currentYear < 4 && window.isOpen(); ++currentYear) {
         showCountdown(window, std::to_string(currentYear + 1) + " grade");
 
@@ -82,7 +87,8 @@ int playGrade(sf::RenderWindow& window) {
     // 모든 학년이 끝났을 때 결과 화면 → 선택 화면
     if (currentYear == 4) {
         int grade = 4; // 또는 어떤 변수를 쓰든 간에 현재 학년
-        int score = 100; // 예시: 플레이어 점수를 전달
+        float score = finalGPA; 
+        std::this_thread::sleep_for(std::chrono::seconds(9));
 
         int result = screenGradeResult(window, grade, score);
         if (result == -1) {

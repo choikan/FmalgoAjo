@@ -10,6 +10,9 @@
 #include <cmath>
 
 extern std::string playerName;
+float finalGPA = 0.0f;
+
+
 void drawRanking(sf::RenderWindow& window, sf::Font& font) {
     std::vector<std::pair<std::string, float>> rankings;
     std::ifstream in("rank.txt");
@@ -40,7 +43,7 @@ void drawRanking(sf::RenderWindow& window, sf::Font& font) {
         rankText.setString(line);
 
         float rankX = (WINDOW_WIDTH - rankText.getLocalBounds().width) / 2.f;
-        rankText.setPosition(rankX, 460 + i * 30);
+        rankText.setPosition(rankX, 360 + i * 30);
         window.draw(rankText);
     }
 }
@@ -55,8 +58,11 @@ int currentYear = 0; //현재 학년(0~3)
 float lastSpawnTime = 0.f; //마지막으로 학점 생성된 시간
 int gradeCollisionCount = 0;// 한 학년에서 받은 학점개수 (총 11개)
 int rowCount = 0;// 생성된 행 수 
+bool waitingForEnter = false; // 엔터 대기 상태
 Clock gameClock; //게임 시간 측정용 SFML시계
 mutex gradeMutex;//쓰레드 안전을 위한 뮤텍스
+
+
 
 vector<Texture> gradeTextures(9);
 vector<Sprite> gradeSprites(9);
@@ -86,7 +92,7 @@ void initPlayer() {//플레이어텍스쳐 로드 , 화면 하단 중앙에 배�
     }
     player.sprite.setTexture(player.texture);  // ⚠️ 중요: player가 텍스처 보관함
     player.x = WINDOW_WIDTH / 2.f - player.texture.getSize().x / 2.f;
-    player.y = WINDOW_HEIGHT - 80;
+    player.y = WINDOW_HEIGHT - 150;  // 더 빼고
 }
 
 void drawPlayer(RenderWindow& window) {//플레이어 스프라이트를 초기화된 위치에 그림
@@ -110,70 +116,17 @@ void createSingleGrade(vector<Grade>& grades, float currentTime) {
     grades.push_back(g);
 }
 
-/*void dropGrades(vector<Grade>& grades) {
-//게임 루프에서 학점들 일정시간 간격으로 떨어드리는 역할
-//현재 학년에  따라 떨어뜨릴 개수 증가(난이도 조절)
-//grades 벡터에 추가되고 바닥에 도달한 학점 제거
-//쓰레드에서 실행되도록 설계됨
-    float spawnInterval = 0.3f;
-
-    while (isRunning) {
-        float currentTime = gameClock.getElapsedTime().asSeconds();
-
-        if (!isGamePaused && !isGameOver) {
-            if (currentTime - lastSpawnTime >= spawnInterval) {
-		// 학년별로 떨어질 개수 결정-6.15일 수정
-		int minCount = currentYear +1;  
-		int maxCount = currentYear +2;
-		int dropCount = rand() % (maxCount - minCount +1) + minCount;
-                
-		for (int i = 0; i < dropCount; ++i) {
-			createSingleGrade(grades, currentTime);
-		}
-
-                lastSpawnTime = currentTime;
-                spawnInterval = MIN_SPAWN_INTERVAL + static_cast<float>(rand()) / RAND_MAX * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL);
-                ++rowCount;
-            }
-
-            {
-                lock_guard<mutex> lock(gradeMutex);
-                for (auto& g : grades) {
-                    if (!g.active && currentTime >= g.activatedTime) {
-                        g.active = true;
-                    }
-                    if (g.active) {
-                        g.y += DROP_SPEED_BY_YEAR[currentYear];
-                        g.sprite.setPosition(g.x, g.y);
-                    }
-                }
-
-                grades.erase(
-                    remove_if(grades.begin(), grades.end(), [](const Grade& g) {
-                        return g.active && g.y >= WINDOW_HEIGHT - GRADE_HEIGHT;
-                    }),
-                    grades.end()
-                );
-            }
-        }
-
-        this_thread::sleep_for(chrono::milliseconds(30));
-    }
-}*/
 float getSpawnInterval(int currentYear) {
-    const float baseInterval = 1.0f;    // 초기 스폰 간격 (초)
-    const float minInterval = 0.2f;     // 최소 스폰 간격 (초)
-    float interval = std::max(minInterval, baseInterval * static_cast<float>(std::pow(0.85f, currentYear)));
-
-    if (interval < minInterval)
-        interval = minInterval;
-
+    const float baseInterval = 1.0f;
+    const float minInterval = 0.1f;
+    float interval = std::max(minInterval, static_cast<float>(baseInterval * std::pow(0.6f, currentYear)));
     return interval;
 }
 
-void dropGrades(vector<Grade>& grades) {
-    float baseInterval = 1.0f;  // 시작 간격
-    float minInterval = 0.2f;   // 가장 짧은 간격
+
+void dropGrades(std::vector<Grade>& grades) {
+    float baseInterval = 1.0f;
+    float minInterval = 0.1f;
     float spawnInterval = baseInterval;
 
     while (isRunning) {
@@ -181,17 +134,16 @@ void dropGrades(vector<Grade>& grades) {
 
         if (!isGamePaused && !isGameOver) {
             if (currentTime - lastSpawnTime >= spawnInterval) {
-                // 학점 1개만 생성
                 createSingleGrade(grades, currentTime);
 
                 lastSpawnTime = currentTime;
 
-                spawnInterval = getSpawnInterval(currentYear);
+                spawnInterval = getSpawnInterval(currentYear); // 학년 따라 동적으로 변경
                 ++rowCount;
             }
 
             {
-                lock_guard<mutex> lock(gradeMutex);
+                std::lock_guard<std::mutex> lock(gradeMutex);
                 for (auto& g : grades) {
                     if (!g.active && currentTime >= g.activatedTime) {
                         g.active = true;
@@ -203,7 +155,7 @@ void dropGrades(vector<Grade>& grades) {
                 }
 
                 grades.erase(
-                    remove_if(grades.begin(), grades.end(), [](const Grade& g) {
+                    std::remove_if(grades.begin(), grades.end(), [](const Grade& g) {
                         return g.active && g.y >= WINDOW_HEIGHT - GRADE_HEIGHT;
                     }),
                     grades.end()
@@ -211,10 +163,9 @@ void dropGrades(vector<Grade>& grades) {
             }
         }
 
-        this_thread::sleep_for(chrono::milliseconds(30));
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
 }
-
 
 
 void checkCollisions(vector<Grade>& grades) {
@@ -339,7 +290,7 @@ void drawUI(sf::RenderWindow& window, sf::Font& font, std::vector<Grade>& grades
 
             yearText.setString("Year " + std::to_string(i + 1) + " Average: " + avgStr);
             float yearX = (WINDOW_WIDTH - yearText.getLocalBounds().width) / 2.f;
-            yearText.setPosition(yearX, 250 + i * 40);
+            yearText.setPosition(yearX, 100 + i * 40);
             window.draw(yearText);
         }
 
@@ -347,6 +298,7 @@ void drawUI(sf::RenderWindow& window, sf::Font& font, std::vector<Grade>& grades
         float total = 0;
         for (float s : yearAverages) total += s;
         float finalAvg = total / 4;
+        finalGPA = finalAvg;
         std::string finalStr = std::to_string(finalAvg);
         finalStr = finalStr.substr(0, finalStr.find('.') + 3);
 
@@ -366,7 +318,7 @@ void drawUI(sf::RenderWindow& window, sf::Font& font, std::vector<Grade>& grades
         finalText.setFillColor(sf::Color::Yellow);
         finalText.setString(" Final GPA: " + finalStr);
         float finalX = (WINDOW_WIDTH - finalText.getLocalBounds().width) / 2.f;
-        finalText.setPosition(finalX, 250 + 4 * 40 + 20);
+        finalText.setPosition(finalX, 150 + 4 * 40 + 20);  //
         window.draw(finalText);
 
         drawRanking(window, font); //rank.txt에서 상위 5명  랭킹 불러와서 내림차순 출력
